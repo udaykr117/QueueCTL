@@ -1,0 +1,14 @@
+queuectl
+*.exe
+*.out
+*.o
+*.test
+
+data/
+*.db
+
+
+.vscode/
+
+
+
