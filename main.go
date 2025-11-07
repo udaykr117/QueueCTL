@@ -67,7 +67,7 @@ var workerStartCmd = &cobra.Command{
 			log.Fatalln("Worker count must be atleast 1")
 		}
 
-		backoffBase := 1.0
+		backoffBase := 2.0
 		if configVal, err := GetConfig("backoff-base"); err == nil {
 			if parsed, err := parseFloat(configVal); err != nil {
 				backoffBase = parsed
@@ -269,6 +269,58 @@ var listCmd = &cobra.Command{
 	},
 }
 
+var dlqCmd = &cobra.Command{
+	Use:   "dlq",
+	Short: "Manage Dead Letter Queue",
+	Long:  `View and manage jobs in the Dead Letter Queue (permanently failed jobs).`,
+}
+
+var dlqListCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List jobs in Dead Letter Queue",
+	Long:  `Display all jobs that have been moved to the Dead Letter Queue.`,
+	Run: func(cmd *cobra.Command, args []string) {
+		jobs, err := GetDLQJobs()
+		if err != nil {
+			log.Fatalf("Failed to get DLQ jobs: %v", err)
+		}
+
+		if len(jobs) == 0 {
+			fmt.Println("No jobs in Dead Letter Queue")
+			return
+		}
+		fmt.Printf("Dead Letter Queue Jobs (%d)\n", len(jobs))
+		fmt.Println(strings.Repeat("=", 80))
+		fmt.Printf("%-20s %-15s %-10s %-10s %-25s\n", "ID", "STATE", "ATTEMPTS", "MAX_RETRIES", "CREATED_AT")
+		fmt.Println(strings.Repeat("-", 80))
+		for _, job := range jobs {
+			fmt.Printf("%-20s %-15s %-10d %-10d %-25s\n",
+				job.ID,
+				string(job.State),
+				job.Attempts,
+				job.MaxRetries,
+				job.CreatedAt.Format(time.RFC3339),
+			)
+		}
+	},
+}
+
+var dlqRetryCmd = &cobra.Command{
+	Use:   "retry",
+	Short: "Retry a job from Dead Letter Queue",
+	Long:  `Reset a job from DLQ back to pending state so it can be retried.`,
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		jobID := args[0]
+
+		if err := RetryDLQJob(jobID); err != nil {
+			log.Fatalf("Failed to retry DLQ job: %v", err)
+		}
+
+		fmt.Printf("Job %s has been reset to pending state and will be retried\n", jobID)
+	},
+}
+
 func init() {
 	rootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 
@@ -278,6 +330,10 @@ func init() {
 
 	listCmd.Flags().StringP("state", "s", "", "Filter jobs by state (pending, processing, completed, failed, dead)")
 	rootCmd.AddCommand(listCmd)
+
+	dlqCmd.AddCommand(dlqListCmd)
+	dlqCmd.AddCommand(dlqRetryCmd)
+	rootCmd.AddCommand(dlqCmd)
 
 	workerStartCmd.Flags().IntP("count", "c", 1, "Number of workers to start")
 	workerCmd.AddCommand(workerStartCmd)

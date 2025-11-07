@@ -294,3 +294,36 @@ func GetAllJobs() ([]*Job, error) {
 
 	return jobs, nil
 }
+
+func GetDLQJobs() ([]*Job, error) {
+	return GetJobsByState(StateDead)
+}
+
+func RetryDLQJob(jobID string) error {
+	var currentState string
+	err := db.QueryRow("SELECT state FROM jobs WHERE id = ?", jobID).Scan(&currentState)
+	if err == sql.ErrNoRows {
+		return fmt.Errorf("job not found: %s", jobID)
+	}
+	if err != nil {
+		return fmt.Errorf("failed to get job state: %w", err)
+	}
+
+	if currentState != string(StateDead) {
+		return fmt.Errorf("job %s is not in DLQ (current state: %s)", jobID, currentState)
+	}
+
+	now := time.Now().UTC()
+	_, err = db.Exec(`
+		UPDATE jobs
+		SET state = ?, attempts = 0, last_error = '', next_retry_at = NULL, 
+		    updated_at = ?, locked_by = NULL, locked_at = NULL
+		WHERE id = ?
+	`, string(StatePending), now.Format(time.RFC3339), jobID)
+
+	if err != nil {
+		return fmt.Errorf("failed to retry DLQ job: %w", err)
+	}
+
+	return nil
+}

@@ -190,7 +190,7 @@ func CalculateBackoffDelay(attempts int, baseDelay float64) time.Duration {
 	if attempts <= 0 {
 		attempts = 1
 	}
-	delaySeconds := baseDelay * math.Pow(2, float64(attempts))
+	delaySeconds := math.Pow(baseDelay, float64(attempts))
 	return time.Duration(delaySeconds) * time.Second
 }
 
