@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -321,6 +322,81 @@ var dlqRetryCmd = &cobra.Command{
 	},
 }
 
+var configCmd = &cobra.Command{
+	Use:   "config",
+	Short: "Manage configuration",
+	Long:  `Manage system configuration such as retry count, backoff base, etc.`,
+}
+
+var configSetCmd = &cobra.Command{
+	Use:   "set",
+	Short: "Set a configuration value",
+	Long:  `Set a configuration key-value pair. Common keys: max-retries, backoff-base`,
+	Args:  cobra.ExactArgs(2),
+	Run: func(cmd *cobra.Command, args []string) {
+		key := args[0]
+		value := args[1]
+		switch key {
+		case "max-retries":
+			if _, err := strconv.Atoi(value); err != nil {
+				log.Fatalf("Invalid value for max-retries: %s (must be an integer)", value)
+			}
+		case "backoff-base":
+			if _, err := parseFloat(value); err != nil {
+				log.Fatalf("Invalid value for backoff-base: %s (must be a number)", value)
+			}
+		}
+
+		if err := SetConfig(key, value); err != nil {
+			log.Fatalf("Failed to set config: %v", err)
+		}
+
+		fmt.Printf("Configuration '%s' set to '%s'\n", key, value)
+	},
+}
+
+var configGetCmd = &cobra.Command{
+	Use:   "get",
+	Short: "Get a configuration value",
+	Long:  `Get the value of a configuration key.`,
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		key := args[0]
+
+		value, err := GetConfig(key)
+		if err != nil {
+			log.Fatalf("Failed to get config: %v", err)
+		}
+
+		fmt.Println(value)
+	},
+}
+
+var configListCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List all configuration",
+	Long:  `Display all configuration key-value pairs.`,
+	Run: func(cmd *cobra.Command, args []string) {
+		config, err := GetAllConfig()
+		if err != nil {
+			log.Fatalf("Failed to get config: %v", err)
+		}
+
+		if len(config) == 0 {
+			fmt.Println("No configuration set")
+			return
+		}
+
+		fmt.Println("Configuration:")
+		fmt.Println(strings.Repeat("=", 50))
+		fmt.Printf("%-20s %s\n", "KEY", "VALUE")
+		fmt.Println(strings.Repeat("-", 50))
+		for key, value := range config {
+			fmt.Printf("%-20s %s\n", key, value)
+		}
+	},
+}
+
 func init() {
 	rootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 
@@ -334,6 +410,11 @@ func init() {
 	dlqCmd.AddCommand(dlqListCmd)
 	dlqCmd.AddCommand(dlqRetryCmd)
 	rootCmd.AddCommand(dlqCmd)
+
+	configCmd.AddCommand(configSetCmd)
+	configCmd.AddCommand(configGetCmd)
+	configCmd.AddCommand(configListCmd)
+	rootCmd.AddCommand(configCmd)
 
 	workerStartCmd.Flags().IntP("count", "c", 1, "Number of workers to start")
 	workerCmd.AddCommand(workerStartCmd)
