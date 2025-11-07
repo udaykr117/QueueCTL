@@ -1,4 +1,5 @@
 queuectl
+./queuectl
 *.exe
 *.out
 *.o
@@ -12,3 +13,4 @@ data/
 
 
 
+queuectl
