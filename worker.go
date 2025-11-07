@@ -193,6 +193,13 @@ func CalculateBackoffDelay(attempts int, baseDelay float64) time.Duration {
 	delaySeconds := baseDelay * math.Pow(2, float64(attempts))
 	return time.Duration(delaySeconds) * time.Second
 }
+
+func IsWorkerRunning() bool {
+	workerPoolMutex.Lock()
+	defer workerPoolMutex.Unlock()
+	return globalWorkerPool != nil
+}
+
 func GetWorkerPool() *WorkerPool {
 	workerPoolMutex.Lock()
 	defer workerPoolMutex.Unlock()

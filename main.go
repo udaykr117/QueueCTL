@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -28,7 +29,9 @@ var rootCmd = &cobra.Command{
 		}
 	},
 	PersistentPostRun: func(cmd *cobra.Command, args []string) {
-		CloseDB()
+		if cmd.Name() != "start" {
+			CloseDB()
+		}
 	},
 }
 
@@ -146,10 +149,135 @@ var workerStopCmd = &cobra.Command{
 	},
 }
 
+var statusCmd = &cobra.Command{
+	Use:   "status",
+	Short: "Show summary of all job states & active workers",
+	Long:  `Display a summary of job counts by state and the number of active workers.`,
+	Run: func(cmd *cobra.Command, args []string) {
+		counts, err := GetJobCountsByState()
+		if err != nil {
+			log.Fatalf("Failed to get job counts: %v", err)
+		}
+		activeWorkers := 0
+		if IsWorkerRunning() {
+			pool := GetWorkerPool()
+			if pool != nil {
+				activeWorkers = pool.workerCount
+			} else {
+				dataDir, err := GetDataDir()
+				if err == nil {
+					pidFile := filepath.Join(dataDir, "worker.pid")
+					if pidBytes, err := os.ReadFile(pidFile); err == nil {
+						var pid, workerCount int
+						lines := strings.Split(strings.TrimSpace(string(pidBytes)), "\n")
+						if len(lines) >= 1 {
+							if _, err := fmt.Sscanf(lines[0], "%d", &pid); err == nil {
+								if len(lines) >= 2 {
+									if _, err := fmt.Sscanf(lines[1], "%d", &workerCount); err == nil {
+										activeWorkers = workerCount
+									} else {
+										activeWorkers = 1 // Default assumption
+									}
+								} else {
+									activeWorkers = 1 // Default assumption
+								}
+
+								process, err := os.FindProcess(pid)
+								if err == nil {
+									if err := process.Signal(syscall.Signal(0)); err != nil {
+										activeWorkers = 0
+									}
+								} else {
+									activeWorkers = 0
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+
+		// Display summary
+		fmt.Println("Job Queue Status")
+		fmt.Println("===============")
+		fmt.Printf("Pending:    %d\n", counts[StatePending])
+		fmt.Printf("Processing: %d\n", counts[StateProcessing])
+		fmt.Printf("Completed:  %d\n", counts[StateCompleted])
+		fmt.Printf("Failed:     %d\n", counts[StateFailed])
+		fmt.Printf("Dead:       %d\n", counts[StateDead])
+		fmt.Println()
+		fmt.Printf("Active Workers: %d\n", activeWorkers)
+	},
+}
+
+var listCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List jobs by state",
+	Long:  `List all jobs, optionally filtered by state.`,
+	Run: func(cmd *cobra.Command, args []string) {
+		stateFlag, err := cmd.Flags().GetString("state")
+		if err != nil {
+			log.Fatalf("Failed to get state flag: %v", err)
+		}
+
+		var jobs []*Job
+		if stateFlag != "" {
+			jobState := JobState(stateFlag)
+			validStates := []JobState{StatePending, StateProcessing, StateCompleted, StateFailed, StateDead}
+			valid := false
+			for _, vs := range validStates {
+				if jobState == vs {
+					valid = true
+					break
+				}
+			}
+			if !valid {
+				log.Fatalf("Invalid state: %s. Valid states are: pending, processing, completed, failed, dead", stateFlag)
+			}
+
+			jobs, err = GetJobsByState(jobState)
+			if err != nil {
+				log.Fatalf("Failed to get jobs: %v", err)
+			}
+		} else {
+			jobs, err = GetAllJobs()
+			if err != nil {
+				log.Fatalf("Failed to get jobs: %v", err)
+			}
+		}
+
+		if len(jobs) == 0 {
+			if stateFlag != "" {
+				fmt.Printf("No jobs found with state: %s\n", stateFlag)
+			} else {
+				fmt.Println("No jobs found")
+			}
+			return
+		}
+
+		fmt.Printf("%-20s %-15s %-10s %-10s %-25s\n", "ID", "STATE", "ATTEMPTS", "MAX_RETRIES", "CREATED_AT")
+		fmt.Println(strings.Repeat("-", 80))
+		for _, job := range jobs {
+			fmt.Printf("%-20s %-15s %-10d %-10d %-25s\n",
+				job.ID,
+				string(job.State),
+				job.Attempts,
+				job.MaxRetries,
+				job.CreatedAt.Format(time.RFC3339),
+			)
+		}
+	},
+}
+
 func init() {
 	rootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 
 	rootCmd.AddCommand(enqueueCmd)
+
+	rootCmd.AddCommand(statusCmd)
+
+	listCmd.Flags().StringP("state", "s", "", "Filter jobs by state (pending, processing, completed, failed, dead)")
+	rootCmd.AddCommand(listCmd)
 
 	workerStartCmd.Flags().IntP("count", "c", 1, "Number of workers to start")
 	workerCmd.AddCommand(workerStartCmd)

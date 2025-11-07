@@ -7,9 +7,9 @@ type JobState string
 const (
 	StatePending    JobState = "pending"
 	StateProcessing JobState = "processing"
-	StateCompleted  JobState = "Completed"
-	StateFailed     JobState = "Failed"
-	StateDead       JobState = "Dead"
+	StateCompleted  JobState = "completed"
+	StateFailed     JobState = "failed"
+	StateDead       JobState = "dead"
 )
 
 type Job struct {

@@ -198,3 +198,99 @@ func SetNextRetryAt(jobID string, nextRetry time.Time) error {
 	}
 	return nil
 }
+
+func GetJobCountsByState() (map[JobState]int, error) {
+	counts := make(map[JobState]int)
+	rows, err := db.Query(`
+		SELECT state, COUNT(*) as count
+		FROM jobs
+		GROUP BY state
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get job counts: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var state string
+		var count int
+		if err := rows.Scan(&state, &count); err != nil {
+			return nil, fmt.Errorf("failed to scan job count: %w", err)
+		}
+		counts[JobState(state)] = count
+	}
+
+	return counts, nil
+}
+
+func GetJobsByState(state JobState) ([]*Job, error) {
+	rows, err := db.Query(`
+		SELECT id, command, state, attempts, max_retries, created_at, updated_at
+		FROM jobs
+		WHERE state = ?
+		ORDER BY created_at ASC
+	`, string(state))
+	if err != nil {
+		return nil, fmt.Errorf("failed to get jobs by state: %w", err)
+	}
+	defer rows.Close()
+
+	var jobs []*Job
+	for rows.Next() {
+		var job Job
+		var createdAtStr, updatedAtStr string
+
+		if err := rows.Scan(
+			&job.ID, &job.Command, &job.State, &job.Attempts, &job.MaxRetries,
+			&createdAtStr, &updatedAtStr,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan job: %w", err)
+		}
+
+		if createdAt, err := time.Parse(time.RFC3339, createdAtStr); err == nil {
+			job.CreatedAt = createdAt
+		}
+		if updatedAt, err := time.Parse(time.RFC3339, updatedAtStr); err == nil {
+			job.UpdatedAt = updatedAt
+		}
+
+		jobs = append(jobs, &job)
+	}
+
+	return jobs, nil
+}
+
+func GetAllJobs() ([]*Job, error) {
+	rows, err := db.Query(`
+		SELECT id, command, state, attempts, max_retries, created_at, updated_at
+		FROM jobs
+		ORDER BY created_at ASC
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get all jobs: %w", err)
+	}
+	defer rows.Close()
+
+	var jobs []*Job
+	for rows.Next() {
+		var job Job
+		var createdAtStr, updatedAtStr string
+
+		if err := rows.Scan(
+			&job.ID, &job.Command, &job.State, &job.Attempts, &job.MaxRetries,
+			&createdAtStr, &updatedAtStr,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan job: %w", err)
+		}
+		if createdAt, err := time.Parse(time.RFC3339, createdAtStr); err == nil {
+			job.CreatedAt = createdAt
+		}
+		if updatedAt, err := time.Parse(time.RFC3339, updatedAtStr); err == nil {
+			job.UpdatedAt = updatedAt
+		}
+
+		jobs = append(jobs, &job)
+	}
+
+	return jobs, nil
+}
