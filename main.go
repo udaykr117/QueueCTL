@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"fmt"
 	"log"
 	"os"
@@ -70,7 +71,7 @@ var workerStartCmd = &cobra.Command{
 
 		backoffBase := 2.0
 		if configVal, err := GetConfig("backoff-base"); err == nil {
-			if parsed, err := parseFloat(configVal); err != nil {
+			if parsed, err := parseFloat(configVal); err == nil {
 				backoffBase = parsed
 			}
 		}
@@ -397,6 +398,52 @@ var configListCmd = &cobra.Command{
 	},
 }
 
+var ShowCmd = &cobra.Command{
+	Use:   "show job-id",
+	Short: "Show details and output of a job",
+	Long:  `detailed information about a job including its output.`,
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		jobID := args[0]
+		job, err := GetJobByID(jobID)
+		if err != nil {
+			log.Fatalf("failed to get job: %v", err)
+		}
+
+		var lastError sql.NullString
+		err = DB().QueryRow("SELECT last_error FROM jobs WHERE id = ?", jobID).Scan(&lastError)
+		if err != nil {
+			log.Printf("Warning: failed to get last_error: %v", err)
+		}
+
+		fmt.Println("Job Details")
+		fmt.Println(strings.Repeat("=", 80))
+		fmt.Printf("%-20s %s\n", "ID:", job.ID)
+		fmt.Printf("%-20s %s\n", "Command:", job.Command)
+		fmt.Printf("%-20s %s\n", "State:", string(job.State))
+		fmt.Printf("%-20s %d\n", "Attempts:", job.Attempts)
+		fmt.Printf("%-20s %d\n", "Max Retries:", job.MaxRetries)
+		if job.Timeout > 0 {
+			fmt.Printf("%-20s %d seconds\n", "Timeout:", job.Timeout)
+		} else {
+			fmt.Printf("%-20s %s\n", "Timeout:", "default (5 minutes)")
+		}
+		fmt.Printf("%-20s %s\n", "Created At:", job.CreatedAt.Format(time.RFC3339))
+		fmt.Printf("%-20s %s\n", "Updated At:", job.UpdatedAt.Format(time.RFC3339))
+		if lastError.Valid && lastError.String != "" {
+			fmt.Printf("%-20s %s\n", "Last Error:", lastError.String)
+		}
+
+		fmt.Println("\nOutput")
+		fmt.Println(strings.Repeat("-", 80))
+		if job.Output != "" {
+			fmt.Println(job.Output)
+		} else {
+			fmt.Println("(No output available)")
+		}
+	},
+}
+
 func init() {
 	rootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 
@@ -415,6 +462,8 @@ func init() {
 	configCmd.AddCommand(configGetCmd)
 	configCmd.AddCommand(configListCmd)
 	rootCmd.AddCommand(configCmd)
+
+	rootCmd.AddCommand(ShowCmd)
 
 	workerStartCmd.Flags().IntP("count", "c", 1, "Number of workers to start")
 	workerCmd.AddCommand(workerStartCmd)

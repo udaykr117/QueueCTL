@@ -20,7 +20,8 @@ func initDB(dataDir string) error {
 		return fmt.Errorf("failed to create data directory: %w", err)
 	}
 
-	db, err = sql.Open("sqlite3", dbPath+"?_journal_mode=WAL&_foreign_keys=1")
+	// db, err = sql.Open("sqlite3", dbPath+"?_journal_mode=WAL&_foreign_keys=1")
+	db, err = sql.Open("sqlite3", fmt.Sprintf("%s?_busy_timeout=5000&_journal_mode=WAL", dbPath))
 	if err != nil {
 		return fmt.Errorf("failed to open database: %w", err)
 	}
@@ -34,6 +35,8 @@ func initDB(dataDir string) error {
 			max_retries INTEGER NOT NULL DEFAULT 3,
 			created_at TEXT NOT NULL,
 			updated_at TEXT NOT NULL,
+			timeout INTEGER NOT NULL DEFAULT 0,
+			output TEXT DEFAULT '',
 			last_error TEXT DEFAULT '',
 			next_retry_at TEXT,
 			locked_by TEXT,
@@ -47,6 +50,8 @@ func initDB(dataDir string) error {
 		"ALTER TABLE jobs ADD COLUMN next_retry_at TEXT",
 		"ALTER TABLE jobs ADD COLUMN locked_by TEXT",
 		"ALTER TABLE jobs ADD COLUMN locked_at TEXT",
+		"ALTER TABLE jobs ADD COLUMN timeout INTEGER NOT NULL DEFAULT 0",
+		"ALTER TABLE jobs ADD COLUMN output TEXT DEFAULT ''",
 	}
 	for _, migration := range migrations {
 		_, _ = db.Exec(migration)
@@ -68,23 +73,25 @@ func CloseDB() error {
 
 func CreateJob(job *Job) error {
 	now := time.Now().UTC()
-	job.CreatedAt = now
+	if job.CreatedAt.IsZero() {
+		job.CreatedAt = now
+	}
 	job.UpdatedAt = now
 	_, err := db.Exec(`
-		INSERT INTO jobs (id, command, state, attempts, max_retries, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		INSERT INTO jobs (id, command, state, attempts, max_retries,timeout, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?,?)`,
 		job.ID,
 		job.Command,
 		string(job.State),
 		job.Attempts,
 		job.MaxRetries,
+		job.Timeout,
 		now.Format(time.RFC3339),
 		now.Format(time.RFC3339),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create job: %w", err)
 	}
-
 	return nil
 }
 
@@ -95,7 +102,7 @@ func GetNextPendingJob(workerID string) (*Job, error) {
 	var jobID string
 	err := db.QueryRow(`
 		SELECT id FROM jobs
-		WHERE state = 'pending' 
+		WHERE state = 'pending'
 		AND (locked_by IS NULL OR datetime(locked_at) < datetime('now', '-5 minutes'))
 		AND (next_retry_at IS NULL OR datetime(next_retry_at) <= datetime('now'))
 		ORDER BY created_at ASC
@@ -110,7 +117,7 @@ func GetNextPendingJob(workerID string) (*Job, error) {
 	}
 
 	result, err := db.Exec(`
-		UPDATE jobs 
+		UPDATE jobs
 		SET locked_by = ?, locked_at = ?, state = ?
 		WHERE id = ? AND state = 'pending'
 	`, workerID, nowStr, string(StateProcessing), jobID)
@@ -124,14 +131,14 @@ func GetNextPendingJob(workerID string) (*Job, error) {
 	}
 
 	if rowsAffected == 0 {
-		return nil, nil // No job available (another worker claimed it)
+		return nil, nil
 	}
 
 	var job Job
 	var createdAtStr, updatedAtStr sql.NullString
-	var lastError, nextRetryAt, lockedBy, lockedAt sql.NullString
+	var lastError, nextRetryAt, lockedBy, lockedAt, output sql.NullString
 	err = db.QueryRow(`
-		SELECT id, command, state, attempts, max_retries, created_at, updated_at,
+		SELECT id, command, state, attempts, max_retries,timeout,output, created_at, updated_at,
 		       last_error, next_retry_at, locked_by, locked_at
 		FROM jobs
 		WHERE locked_by = ? AND state = ?
@@ -139,7 +146,7 @@ func GetNextPendingJob(workerID string) (*Job, error) {
 		LIMIT 1
 	`, workerID, string(StateProcessing)).Scan(
 		&job.ID, &job.Command, &job.State, &job.Attempts, &job.MaxRetries,
-		&createdAtStr, &updatedAtStr, &lastError, &nextRetryAt,
+		&job.Timeout, &job.Output, &createdAtStr, &updatedAtStr, &lastError, &nextRetryAt,
 		&lockedBy, &lockedAt,
 	)
 
@@ -155,9 +162,13 @@ func GetNextPendingJob(workerID string) (*Job, error) {
 	if updatedAtStr.Valid {
 		job.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAtStr.String)
 	}
+	if output.Valid {
+		job.Output = output.String
+	}
 
 	return &job, nil
 }
+
 func UpdateJobState(jobID string, state JobState, lastError string) error {
 	now := time.Now().UTC()
 	_, err := db.Exec(`
@@ -225,7 +236,7 @@ func GetJobCountsByState() (map[JobState]int, error) {
 
 func GetJobsByState(state JobState) ([]*Job, error) {
 	rows, err := db.Query(`
-		SELECT id, command, state, attempts, max_retries, created_at, updated_at
+		SELECT id, command, state, attempts,max_retries,timeout, output , created_at, updated_at
 		FROM jobs
 		WHERE state = ?
 		ORDER BY created_at ASC
@@ -242,7 +253,7 @@ func GetJobsByState(state JobState) ([]*Job, error) {
 
 		if err := rows.Scan(
 			&job.ID, &job.Command, &job.State, &job.Attempts, &job.MaxRetries,
-			&createdAtStr, &updatedAtStr,
+			&job.Timeout, &job.Output, &createdAtStr, &updatedAtStr,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan job: %w", err)
 		}
@@ -262,7 +273,7 @@ func GetJobsByState(state JobState) ([]*Job, error) {
 
 func GetAllJobs() ([]*Job, error) {
 	rows, err := db.Query(`
-		SELECT id, command, state, attempts, max_retries, created_at, updated_at
+		SELECT id, command, state, attempts, max_retries, timeout,output, created_at, updated_at
 		FROM jobs
 		ORDER BY created_at ASC
 	`)
@@ -278,7 +289,7 @@ func GetAllJobs() ([]*Job, error) {
 
 		if err := rows.Scan(
 			&job.ID, &job.Command, &job.State, &job.Attempts, &job.MaxRetries,
-			&createdAtStr, &updatedAtStr,
+			&job.Timeout, &job.Output, &createdAtStr, &updatedAtStr,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan job: %w", err)
 		}
@@ -326,4 +337,53 @@ func RetryDLQJob(jobID string) error {
 	}
 
 	return nil
+}
+func SaveJobOutput(jobID string, output string) error {
+	now := time.Now().UTC()
+
+	_, err := db.Exec(`
+		UPDATE jobs
+		SET output = ?, updated_at = ?
+		WHERE id = ?
+	`, output, now.Format(time.RFC3339), jobID)
+
+	if err != nil {
+		return fmt.Errorf("failed to save job output: %w", err)
+	}
+	return nil
+}
+
+func GetJobByID(jobID string) (*Job, error) {
+	var job Job
+	var createdAtStr, updatedAtStr string
+	var lastError sql.NullString
+
+	err := db.QueryRow(`
+		SELECT id, command, state, attempts, max_retries, timeout, output, created_at, updated_at, last_error
+		FROM jobs
+		WHERE id = ?
+	`, jobID).Scan(
+		&job.ID, &job.Command, &job.State, &job.Attempts, &job.MaxRetries, &job.Timeout, &job.Output,
+		&createdAtStr, &updatedAtStr, &lastError,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("job not found: %s", jobID)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get job: %w", err)
+	}
+
+	if createdAt, err := time.Parse(time.RFC3339, createdAtStr); err == nil {
+		job.CreatedAt = createdAt
+	}
+	if updatedAt, err := time.Parse(time.RFC3339, updatedAtStr); err == nil {
+		job.UpdatedAt = updatedAt
+	}
+
+	return &job, nil
+}
+
+func DB() *sql.DB {
+	return db
 }

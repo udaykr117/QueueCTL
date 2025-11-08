@@ -99,7 +99,6 @@ func (wp *WorkerPool) StopWorkers() error {
 
 func (wp *WorkerPool) workerLoop(workerID string) {
 	defer wp.wg.Done()
-
 	log.Printf("[%s] Started", workerID)
 
 	for {
@@ -116,7 +115,6 @@ func (wp *WorkerPool) workerLoop(workerID string) {
 			time.Sleep(1 * time.Second)
 			continue
 		}
-
 		if job == nil {
 			time.Sleep(500 * time.Millisecond)
 			continue
@@ -131,7 +129,11 @@ func (wp *WorkerPool) processJob(workerID string, job *Job) {
 	if err := IncrementJobAttempts(job.ID); err != nil {
 		log.Printf("[%s] Error incrementing attempts for job %s: %v", workerID, job.ID, err)
 	}
-	err := executeJob(job)
+	output, err := executeJob(job)
+	if err := SaveJobOutput(job.ID, output); err != nil {
+		log.Printf("[%s] Error saving job output: %v", workerID, err)
+	}
+
 	if err == nil {
 		log.Printf("[%s] Job %s completed successfully", workerID, job.ID)
 		if err := UpdateJobState(job.ID, StateCompleted, ""); err != nil {
@@ -167,23 +169,30 @@ func (wp *WorkerPool) processJob(workerID string, job *Job) {
 	}
 }
 
-func executeJob(job *Job) error {
+func executeJob(job *Job) (string, error) {
 	// Set timeout (default 5 minutes if not specified)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	timeout := 5 * time.Minute
+	if job.Timeout > 0 {
+		timeout = time.Duration(job.Timeout) * time.Second
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "sh", "-c", job.Command)
-
 	output, err := cmd.CombinedOutput()
+	outputStr := string(output)
 
 	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return outputStr, fmt.Errorf("job timeout after %v: %s", timeout, outputStr)
+		}
 		exitErr, ok := err.(*exec.ExitError)
 		if ok {
-			return fmt.Errorf("command exited with code %d: %s", exitErr.ExitCode(), string(output))
+			return outputStr, fmt.Errorf("command exited with code %d: %s", exitErr.ExitCode(), string(output))
 		}
-		return fmt.Errorf("command execution failed: %w: %s", err, string(output))
+		return outputStr, fmt.Errorf("command execution failed: %w: %s", err, string(output))
 	}
-	return nil
+	return outputStr, nil
 }
 
 func CalculateBackoffDelay(attempts int, baseDelay float64) time.Duration {

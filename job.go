@@ -18,6 +18,8 @@ type Job struct {
 	Attempts   int       `json:"attempts"`
 	State      JobState  `json:"state"`
 	MaxRetries int       `json:"max_retries"`
+	Timeout    int       `json:"timeout"`
+	Output     string    `json:"output"`
 	CreatedAt  time.Time `json:"created_at"`
 	UpdatedAt  time.Time `json:"updated_at"`
 }
