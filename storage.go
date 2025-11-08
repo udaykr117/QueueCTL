@@ -43,6 +43,23 @@ func initDB(dataDir string) error {
 			locked_at TEXT
 		);
 		CREATE INDEX IF NOT EXISTS idx_state ON jobs(state);
+		CREATE TABLE IF NOT EXISTS metrics (
+			key TEXT PRIMARY KEY,
+			value INTEGER NOT NULL DEFAULT 0,
+			updated_at TEXT NOT NULL
+		);
+		CREATE TABLE IF NOT EXISTS job_executions (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			job_id TEXT NOT NULL,
+			started_at TEXT NOT NULL,
+			completed_at TEXT,
+			duration_ms INTEGER,
+			success INTEGER NOT NULL DEFAULT 0,
+			timeout INTEGER NOT NULL DEFAULT 0,
+			error TEXT
+		);
+		CREATE INDEX IF NOT EXISTS idx_job_executions_job_id ON job_executions(job_id);
+		CREATE INDEX IF NOT EXISTS idx_job_executions_started_at ON job_executions(started_at);
 		CREATE INDEX IF NOT EXISTS idx_locked_by ON jobs(locked_by);
 		`
 	migrations := []string{

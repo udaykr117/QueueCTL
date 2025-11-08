@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -129,10 +130,25 @@ func (wp *WorkerPool) processJob(workerID string, job *Job) {
 	if err := IncrementJobAttempts(job.ID); err != nil {
 		log.Printf("[%s] Error incrementing attempts for job %s: %v", workerID, job.ID, err)
 	}
+
+	startedAt := time.Now().UTC()
+	_ = IncrementMetric("jobs_processed")
+
 	output, err := executeJob(job)
+	completedAt := time.Now().UTC()
 	if err := SaveJobOutput(job.ID, output); err != nil {
 		log.Printf("[%s] Error saving job output: %v", workerID, err)
 	}
+	isTimeout := false
+	if err != nil && strings.Contains(err.Error(), "timeout") {
+		isTimeout = true
+		_ = IncrementMetric("jobs_timeout")
+	}
+	errorMsg := ""
+	if err != nil {
+		errorMsg = err.Error()
+	}
+	_ = RecordJobExecution(job.ID, startedAt, completedAt, err == nil, isTimeout, errorMsg)
 
 	if err == nil {
 		log.Printf("[%s] Job %s completed successfully", workerID, job.ID)
@@ -141,7 +157,9 @@ func (wp *WorkerPool) processJob(workerID string, job *Job) {
 		}
 		return
 	}
-	errorMsg := err.Error()
+	if !isTimeout {
+		_ = IncrementMetric("jobs_failed")
+	}
 	log.Printf("[%s] Job %s failed: %s", workerID, job.ID, errorMsg)
 
 	var currentAttempts int

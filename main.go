@@ -444,6 +444,26 @@ var ShowCmd = &cobra.Command{
 	},
 }
 
+var DashboardCmd = &cobra.Command{
+	Use:   "dashboard",
+	Short: "Start web dashboard server",
+	Long:  `Start a minimal web dashboard server for monitoring queuectl metrics.`,
+	Run: func(cmd *cobra.Command, args []string) {
+		port, err := cmd.Flags().GetInt("port")
+		if err != nil {
+			log.Fatalf("failed to get port flag: %v", err)
+		}
+		if port < 1 || port > 65535 {
+			log.Fatal("Invalid port")
+		}
+		cmd.PostRun = func(cmd *cobra.Command, args []string) {}
+		server := NewServer(port)
+		if err := server.Start(); err != nil {
+			log.Fatalf("failed to start dashboard server: %v", err)
+		}
+	},
+}
+
 func init() {
 	rootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 
@@ -465,6 +485,8 @@ func init() {
 
 	rootCmd.AddCommand(ShowCmd)
 
+	DashboardCmd.Flags().IntP("port", "p", 8080, "Port to run the dashboard server on")
+	rootCmd.AddCommand(DashboardCmd)
 	workerStartCmd.Flags().IntP("count", "c", 1, "Number of workers to start")
 	workerCmd.AddCommand(workerStartCmd)
 	workerCmd.AddCommand(workerStopCmd)
