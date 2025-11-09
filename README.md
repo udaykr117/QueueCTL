@@ -4,7 +4,7 @@ A CLI based background job queue system that manages background jobs with worker
 
 ## Demo Video
 
-Watch a working CLI demonstration of QueueCTL:
+A working CLI demonstration of QueueCTL:
 
 📹 [View Demo Video on Google Drive](https://drive.google.com/drive/folders/1UtA7SOAPJ5MmbPX9fPvhuIoBwRABDpOi?usp=sharing)
 
