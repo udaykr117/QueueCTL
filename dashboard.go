@@ -72,7 +72,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	tmpl := `<!DOCTYPE html>
 <html>
 <head>
-	<title>Queue Control Dashboard</title>
+	<title>QueueCTL Dashboard</title>
 	<style>
 	body {
 		font-family: 'Segoe UI', Roboto, sans-serif;
@@ -190,7 +190,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 </head>
 <body>
 	<div class="container">
-		<h1>Queue Control Dashboard</h1>
+		<h1>QueueCTL Dashboard</h1>
 		
 		<div class="stats-grid">
 			<div class="stat-card"><div class="stat-label">Total Processed</div><div class="stat-value" id="total-processed">-</div></div>

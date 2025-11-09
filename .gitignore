@@ -6,6 +6,7 @@ queuectl
 *.test
 
 data/
+test_data/
 *.db
 
 
