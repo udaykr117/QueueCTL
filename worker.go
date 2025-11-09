@@ -188,8 +188,8 @@ func (wp *WorkerPool) processJob(workerID string, job *Job) {
 }
 
 func executeJob(job *Job) (string, error) {
-	// Set timeout (default 5 minutes if not specified)
-	timeout := 5 * time.Minute
+	defaultTimeout := GetConfigDuration("default-job-timeout", 5*time.Minute)
+	timeout := defaultTimeout
 	if job.Timeout > 0 {
 		timeout = time.Duration(job.Timeout) * time.Second
 	}

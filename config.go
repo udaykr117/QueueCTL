@@ -77,3 +77,48 @@ func GetAllConfig() (map[string]string, error) {
 
 	return config, nil
 }
+func GetConfigWithDefault(key, defaultValue string) string {
+	value, err := GetConfig(key)
+	if err != nil {
+		return defaultValue
+	}
+	return value
+}
+func GetConfigInt(key string, defaultValue int) int {
+	value, err := GetConfig(key)
+	if err != nil {
+		return defaultValue
+	}
+
+	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return defaultValue
+	}
+	return parsed
+}
+
+func GetConfigFloat(key string, defaultValue float64) float64 {
+	value, err := GetConfig(key)
+	if err != nil {
+		return defaultValue
+	}
+	parsed, err := parseFloat(value)
+	if err != nil {
+		return defaultValue
+	}
+
+	return parsed
+}
+
+func GetConfigDuration(key string, defaultValue time.Duration) time.Duration {
+	value, err := GetConfig(key)
+	if err != nil {
+		return defaultValue
+	}
+	seconds, err := strconv.Atoi(value)
+	if err != nil {
+		return defaultValue
+	}
+
+	return time.Duration(seconds) * time.Second
+}

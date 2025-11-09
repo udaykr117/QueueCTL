@@ -69,13 +69,7 @@ var workerStartCmd = &cobra.Command{
 			log.Fatalln("Worker count must be atleast 1")
 		}
 
-		backoffBase := 2.0
-		if configVal, err := GetConfig("backoff-base"); err == nil {
-			if parsed, err := parseFloat(configVal); err == nil {
-				backoffBase = parsed
-			}
-		}
-
+		backoffBase := GetConfigFloat("backoff-base", 2.0)
 		pool := NewWorkerPool(count, backoffBase)
 		if err := pool.StartWorkers(); err != nil {
 			log.Fatalf("Failed to start workers: %v", err)
@@ -452,6 +446,12 @@ var DashboardCmd = &cobra.Command{
 		port, err := cmd.Flags().GetInt("port")
 		if err != nil {
 			log.Fatalf("failed to get port flag: %v", err)
+		}
+		if port == 8080 {
+			configPort := GetConfigInt("dashboard-port", 8080)
+			if configPort != 8080 {
+				port = configPort
+			}
 		}
 		if port < 1 || port > 65535 {
 			log.Fatal("Invalid port")

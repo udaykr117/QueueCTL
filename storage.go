@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -19,9 +20,13 @@ func initDB(dataDir string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create data directory: %w", err)
 	}
-
-	// db, err = sql.Open("sqlite3", dbPath+"?_journal_mode=WAL&_foreign_keys=1")
-	db, err = sql.Open("sqlite3", fmt.Sprintf("%s?_busy_timeout=5000&_journal_mode=WAL", dbPath))
+	dbBusyTimeout := 5000
+	if envTimeout := os.Getenv("QUEUECTL_DB_BUSY_TIMEOUT"); envTimeout != "" {
+		if parsed, err := strconv.Atoi(envTimeout); err == nil {
+			dbBusyTimeout = parsed
+		}
+	}
+	db, err = sql.Open("sqlite3", fmt.Sprintf("%s?_busy_timeout=%d&_journal_mode=WAL", dbPath, dbBusyTimeout))
 	if err != nil {
 		return fmt.Errorf("failed to open database: %w", err)
 	}

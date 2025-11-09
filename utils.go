@@ -47,7 +47,7 @@ func ParseJobJSON(jsonStr string) (*Job, error) {
 		job.State = StatePending
 	}
 	if job.MaxRetries <= 0 {
-		job.MaxRetries = 3
+		job.MaxRetries = GetConfigInt("max-retries", 3)
 	}
 	return &job, nil
 }
